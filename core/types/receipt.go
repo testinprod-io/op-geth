@@ -82,6 +82,37 @@ type Receipt struct {
 	FeeScalar  *big.Float `json:"l1FeeScalar,omitempty"`
 }
 
+type HackReceipt struct {
+	// Consensus fields: These fields are defined by the Yellow Paper
+	Type              uint8  `json:"type,omitempty"`
+	PostState         []byte `json:"root"`
+	Status            uint64 `json:"status"`
+	CumulativeGasUsed uint64 `json:"cumulativeGasUsed" gencodec:"required"`
+	Bloom             Bloom  `json:"logsBloom"         gencodec:"required"`
+	Logs              []*Log `json:"logs"              gencodec:"required"`
+
+	// Implementation fields: These fields are added by geth when processing a transaction.
+	// They are stored in the chain database.
+	TxHash          common.Hash    `json:"transactionHash" gencodec:"required"`
+	ContractAddress common.Address `json:"contractAddress"`
+	GasUsed         uint64         `json:"gasUsed" gencodec:"required"`
+
+	// No DepositNonce for prebedrock
+
+	// Inclusion information: These fields provide information about the inclusion of the
+	// transaction corresponding to this receipt.
+	BlockHash        common.Hash `json:"blockHash,omitempty"`
+	BlockNumber      *big.Int    `json:"blockNumber,omitempty"`
+	TransactionIndex uint        `json:"transactionIndex"`
+
+	// UsingOVM
+	L1GasPrice *big.Int `json:"l1GasPrice" gencodec:"required"`
+	L1GasUsed  *big.Int `json:"l1GasUsed" gencodec:"required"`
+	L1Fee      *big.Int `json:"l1Fee" gencodec:"required"`
+	// FeeScalar as string
+	FeeScalar string `json:"l1FeeScalar" gencodec:"required"`
+}
+
 type receiptMarshaling struct {
 	Type              hexutil.Uint64
 	PostState         hexutil.Bytes
