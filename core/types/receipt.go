@@ -241,18 +241,42 @@ func NewReceipt(root []byte, failed bool, cumulativeGasUsed uint64) *Receipt {
 
 // EncodeRLP implements rlp.Encoder, and flattens the consensus fields of a receipt
 // into an RLP stream. If no post state is present, byzantium fork is assumed.
+//
+//	func (r *Receipt) EncodeRLP(w io.Writer) error {
+//		data := &receiptRLP{r.statusEncoding(), r.CumulativeGasUsed, r.Bloom, r.Logs}
+//		if r.Type == LegacyTxType {
+//			return rlp.Encode(w, data)
+//		}
+//		buf := encodeBufferPool.Get().(*bytes.Buffer)
+//		defer encodeBufferPool.Put(buf)
+//		buf.Reset()
+//		if err := r.encodeTyped(data, buf); err != nil {
+//			return err
+//		}
+//		return rlp.Encode(w, buf.Bytes())
+//	}
+//
+// no custom flattening. we need every field of receipts
+// op-erigon's DecodeRLP will work by this hack. op-geth's DecodeRLP will break
 func (r *Receipt) EncodeRLP(w io.Writer) error {
-	data := &receiptRLP{r.statusEncoding(), r.CumulativeGasUsed, r.Bloom, r.Logs}
-	if r.Type == LegacyTxType {
-		return rlp.Encode(w, data)
-	}
-	buf := encodeBufferPool.Get().(*bytes.Buffer)
-	defer encodeBufferPool.Put(buf)
-	buf.Reset()
-	if err := r.encodeTyped(data, buf); err != nil {
-		return err
-	}
-	return rlp.Encode(w, buf.Bytes())
+	return rlp.Encode(w, &HackReceipt{
+		Type:              r.Type,
+		PostState:         r.PostState,
+		Status:            r.Status,
+		CumulativeGasUsed: r.CumulativeGasUsed,
+		Bloom:             r.Bloom,
+		Logs:              r.Logs,
+		TxHash:            r.TxHash,
+		ContractAddress:   r.ContractAddress,
+		GasUsed:           r.GasUsed,
+		BlockHash:         r.BlockHash,
+		BlockNumber:       r.BlockNumber,
+		TransactionIndex:  r.TransactionIndex,
+		L1GasPrice:        r.L1GasPrice,
+		L1GasUsed:         r.L1GasUsed,
+		L1Fee:             r.L1Fee,
+		FeeScalar:         r.FeeScalar.String(),
+	})
 }
 
 // encodeTyped writes the canonical encoding of a typed receipt to w.
