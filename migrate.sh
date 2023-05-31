@@ -42,6 +42,22 @@ if [ ! -d "$ARTIFACT_PATH" ]; then
     mkdir "$ARTIFACT_PATH"
 fi
 
+banner "Init"
+# boot up geth with new database to supply chain config
+# this is only needed for new database
+./build/bin/geth --datadir="$GETH_DATA_DIR" --http 2> "$LOG_DIR"/start.log &
+PID=$!
+sleep 10
+curl --location 'localhost:8545/' \
+--header 'Content-Type: application/json' \
+--data '{
+	"jsonrpc":"2.0",
+	"method":"eth_blockNumber",
+	"params":[],
+	"id":83
+}'
+kill $PID
+
 banner "Export Blocks"
 time ./build/bin/geth --datadir="$GETH_DATA_DIR" export "$ARTIFACT_PATH"/blocks.rlp 0 "$BEDROCK_START_BLOCK_NUM" 2> "$LOG_DIR"/export_blocks.log
 
