@@ -57,6 +57,7 @@ curl --location 'localhost:8545/' \
 	"id":83
 }'
 kill $PID
+sleep 10
 
 banner "Export Blocks"
 time ./build/bin/geth --datadir="$GETH_DATA_DIR" export "$ARTIFACT_PATH"/blocks.rlp 0 "$BEDROCK_START_BLOCK_NUM" 2> "$LOG_DIR"/export_blocks.log
