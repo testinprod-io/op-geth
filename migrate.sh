@@ -32,15 +32,16 @@ else
     echo "data directory not set."
     exit 1
 fi
+echo "data dir set to $GETH_DATA_DIR"
 
-if [ ! -d "$LOG_DIR" ]; then
-    mkdir "$LOG_DIR"
-fi
+mkdir -p "$LOG_DIR"
 
 ARTIFACT_PATH="/tmp/migration-artifact"
-if [ ! -d "$ARTIFACT_PATH" ]; then
-    mkdir "$ARTIFACT_PATH"
+if [[ -n "$3" ]]; then
+    ARTIFACT_PATH=$3
 fi
+echo "artifact path set to $ARTIFACT_PATH"
+mkdir -p "$ARTIFACT_PATH"
 
 banner "Init"
 # boot up geth with new database to supply chain config
