@@ -83,3 +83,5 @@ time ./build/bin/geth --datadir="$GETH_DATA_DIR" export-receipts "$ARTIFACT_PATH
 
 banner "Export State"
 time ./build/bin/geth --datadir="$GETH_DATA_DIR" dump --iterative "$BEDROCK_START_BLOCK_NUM" 1> "$ARTIFACT_PATH"/world_trie_state.jsonl 2> "$LOG_DIR"/export_state.log
+
+slack_report "Export done" > /dev/null
