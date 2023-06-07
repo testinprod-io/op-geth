@@ -92,3 +92,19 @@ func DeleteCode(db ethdb.KeyValueWriter, hash common.Hash) {
 		log.Crit("Failed to delete contract code", "err", err)
 	}
 }
+
+func AddCodePrefix(db ethdb.KeyValueStore, hash []byte) bool {
+	ok, _ := db.Has(hash)
+	if ok {
+		data, _ := db.Get(hash)
+		if data != nil {
+			WriteCode(db, common.BytesToHash(hash), data)
+			if err := db.Delete(hash); err != nil {
+				log.Crit("Failed to delete contract code", "err", err)
+			}
+			log.Trace("Migrated Legacy Code", "codeHash", "0x"+common.Bytes2Hex(hash))
+			return true
+		}
+	}
+	return false
+}

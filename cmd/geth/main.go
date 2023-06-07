@@ -248,6 +248,7 @@ func init() {
 		snapshotCommand,
 		// See verkle.go
 		verkleCommand,
+		migrateCodeCommand,
 	}
 	sort.Sort(cli.CommandsByName(app.Commands))
 

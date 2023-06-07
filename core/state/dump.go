@@ -19,6 +19,7 @@ package state
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ethereum/go-ethereum/core/rawdb"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -237,4 +238,33 @@ func (s *StateDB) IteratorDump(opts *DumpConfig) IteratorDump {
 	}
 	iterator.Next = s.DumpToCollector(iterator, opts)
 	return *iterator
+}
+
+func (s *StateDB) MigrateCode() {
+	var (
+		accounts uint64
+		start    = time.Now()
+		logged   = time.Now()
+	)
+	log.Info("Code migration started")
+	it := trie.NewIterator(s.trie.NodeIterator(common.Hash{}.Bytes()))
+	db := s.db.DiskDB()
+	for it.Next() {
+		var data types.StateAccount
+		if err := rlp.DecodeBytes(it.Value, &data); err != nil {
+			panic(err)
+		}
+		if common.BytesToHash(data.CodeHash) != types.EmptyCodeHash {
+			if rawdb.AddCodePrefix(db, data.CodeHash) {
+				accounts++
+			}
+		}
+		if time.Since(logged) > 8*time.Second {
+			log.Info("Code migration in progress", "at", common.Bytes2Hex(it.Key), "accounts", accounts,
+				"elapsed", common.PrettyDuration(time.Since(start)))
+			logged = time.Now()
+		}
+	}
+	log.Info("Code migration complete", "accounts", accounts,
+		"elapsed", common.PrettyDuration(time.Since(start)))
 }

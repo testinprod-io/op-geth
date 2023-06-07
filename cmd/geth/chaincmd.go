@@ -164,6 +164,15 @@ It's deprecated, please use "geth db export" instead.
 This command dumps out the state for a given block (or latest, if none provided).
 `,
 	}
+	migrateCodeCommand = &cli.Command{
+		Action: migrateCode,
+		Name:   "migrate-code",
+		Usage:  "Migrate legacy code to prefixed scheme",
+		Flags:  utils.DatabasePathFlags,
+		Description: `
+This command migrates all code stored in the DB with the legacy schema to the new prefixed schema.
+`,
+	}
 )
 
 // initGenesis will initialise the given JSON format genesis file and writes it as
@@ -489,4 +498,20 @@ func dump(ctx *cli.Context) error {
 func hashish(x string) bool {
 	_, err := strconv.Atoi(x)
 	return err != nil
+}
+
+func migrateCode(ctx *cli.Context) error {
+	stack, _ := makeConfigNode(ctx)
+	defer stack.Close()
+
+	db := utils.MakeChainDatabase(ctx, stack, false)
+	header := rawdb.ReadHeadHeader(db)
+	config := &trie.Config{}
+	state, err := state.New(header.Root, state.NewDatabaseWithConfig(db, config), nil)
+	if err != nil {
+		return err
+	}
+
+	state.MigrateCode()
+	return nil
 }
