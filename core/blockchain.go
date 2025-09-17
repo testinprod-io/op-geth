@@ -1573,14 +1573,10 @@ func (bc *BlockChain) writeKnownBlock(block *types.Block) error {
 // writeBlockWithState writes block, metadata and corresponding state data to the
 // database.
 func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.Receipt, statedb *state.StateDB) error {
-	writeStartTime := time.Now()
-	
 	if !bc.HasHeader(block.ParentHash(), block.NumberU64()-1) {
 		return consensus.ErrUnknownAncestor
 	}
 	
-	// Time block data writing
-	blockWriteStart := time.Now()
 	// Irrelevant of the canonical status, write the block itself to the database.
 	//
 	// Note all the components of block(hash->number map, header, body, receipts)
@@ -1592,51 +1588,23 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	if err := blockBatch.Write(); err != nil {
 		log.Crit("Failed to write block into disk", "err", err)
 	}
-	blockWriteTime := time.Since(blockWriteStart)
 	
-	// Time state commit
-	stateCommitStart := time.Now()
 	// Commit all cached state changes into underlying memory database.
 	root, err := statedb.Commit(block.NumberU64(), bc.chainConfig.IsEIP158(block.Number()), bc.chainConfig.IsCancun(block.Number(), block.Time()))
 	if err != nil {
 		return err
 	}
-	stateCommitTime := time.Since(stateCommitStart)
 	
-	// Time trie database operations
-	trieDbStart := time.Now()
 	// If node is running in path mode, skip explicit gc operation
 	// which is unnecessary in this mode.
 	if bc.triedb.Scheme() == rawdb.PathScheme {
-		trieDbTime := time.Since(trieDbStart)
-		totalWriteTime := time.Since(writeStartTime)
-		
-		// Log timing for database writes (Disk I/O operations)
-		log.Info("Block database write timing breakdown",
-			"number", block.NumberU64(),
-			"hash", block.Hash(),
-			"trie_calculation_time_ms", stateCommitTime.Milliseconds(), // CPU: trie root calculation
-			"db_io_time_ms", (blockWriteTime + trieDbTime).Milliseconds(), // Disk I/O: database writes
-			"total_time_ms", totalWriteTime.Milliseconds(),
-			"tx_count", len(block.Transactions()),
-		)
+		// Note: Comprehensive timing is logged in processBlock()
 		return nil
 	}
 	// If we're running an archive node, always flush
 	if bc.cfg.ArchiveMode {
 		err := bc.triedb.Commit(root, false)
-		trieDbTime := time.Since(trieDbStart)
-		totalWriteTime := time.Since(writeStartTime)
-		
-		// Log timing for database writes (Disk I/O operations)
-		log.Info("Block database write timing breakdown",
-			"number", block.NumberU64(),
-			"hash", block.Hash(),
-			"trie_calculation_time_ms", stateCommitTime.Milliseconds(), // CPU: trie root calculation
-			"db_io_time_ms", (blockWriteTime + trieDbTime).Milliseconds(), // Disk I/O: database writes
-			"total_time_ms", totalWriteTime.Milliseconds(),
-			"tx_count", len(block.Transactions()),
-		)
+		// Note: Comprehensive timing is logged in processBlock()
 		return err
 	}
 	// Full but not archive node, do proper garbage collection
@@ -1646,18 +1614,7 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	// Flush limits are not considered for the first TriesInMemory blocks.
 	current := block.NumberU64()
 	if current <= state.TriesInMemory {
-		trieDbTime := time.Since(trieDbStart)
-		totalWriteTime := time.Since(writeStartTime)
-		
-		// Log timing for database writes (Disk I/O operations)
-		log.Info("Block database write timing breakdown",
-			"number", block.NumberU64(),
-			"hash", block.Hash(),
-			"trie_calculation_time_ms", stateCommitTime.Milliseconds(), // CPU: trie root calculation
-			"db_io_time_ms", (blockWriteTime + trieDbTime).Milliseconds(), // Disk I/O: database writes
-			"total_time_ms", totalWriteTime.Milliseconds(),
-			"tx_count", len(block.Transactions()),
-		)
+		// Note: Comprehensive timing is logged in processBlock()
 		return nil
 	}
 	// If we exceeded our memory allowance, flush matured singleton nodes to disk
@@ -1700,22 +1657,7 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 		bc.triedb.Dereference(root)
 	}
 	
-	// Complete timing and log final breakdown
-	trieDbTime := time.Since(trieDbStart)
-	totalWriteTime := time.Since(writeStartTime)
-	
-	// Log detailed timing for database writes (Disk I/O operations)
-	// This measures disk I/O time spent writing block data and state to database
-	log.Info("Block database write timing breakdown",
-		"number", block.NumberU64(),                    // Block number
-		"hash", block.Hash(),                           // Block hash
-		"block_write_time_ms", blockWriteTime.Milliseconds(),   // Disk I/O: Write block header, body, receipts to database
-		"state_commit_time_ms", stateCommitTime.Milliseconds(),  // Disk I/O: Commit state changes to database
-		"trie_db_time_ms", trieDbTime.Milliseconds(),             // Disk I/O: Trie database operations and garbage collection
-		"total_write_time_ms", totalWriteTime.Milliseconds(),    // Total disk I/O time for all database operations
-		"tx_count", len(block.Transactions()),                   // Number of transactions in block
-		"receipt_count", len(receipts),                          // Number of transaction receipts
-	)
+	// Note: Comprehensive timing is logged in processBlock()
 	
 	return nil
 }
@@ -2128,15 +2070,7 @@ func (bc *BlockChain) processBlock(parentRoot common.Hash, block *types.Block, s
 	}
 	vtime := time.Since(vstart)
 	
-	// Log timing for block processing (CPU-bound operations)
-	log.Info("Block processing timing breakdown",
-		"number", block.NumberU64(),
-		"hash", block.Hash(),
-		"block_execution_time_ms", ptime.Milliseconds(), // CPU: transaction execution
-		"state_validation_time_ms", vtime.Milliseconds(), // CPU: state validation
-		"tx_count", len(block.Transactions()),
-		"gas_used", block.GasUsed(),
-	)
+	// Note: Comprehensive timing is logged in processBlock() using blockchain's built-in timers
 
 	// If witnesses was generated and stateless self-validation requested, do
 	// that now. Self validation should *never* run in production, it's more of
@@ -2210,6 +2144,21 @@ func (bc *BlockChain) processBlock(parentRoot common.Hash, block *types.Block, s
 	blockWriteTimer.Update(time.Since(wstart) - max(statedb.AccountCommits, statedb.StorageCommits) /* concurrent */ - statedb.SnapshotCommits - statedb.TrieDBCommits)
 	elapsed := time.Since(startTime) + 1 // prevent zero division
 	blockInsertTimer.Update(elapsed)
+	
+	// Log comprehensive block timing with accurate disk I/O measurements
+	log.Info("Block processing timing",
+		"number", block.NumberU64(),
+		"hash", block.Hash(),
+		"block_execution_time_ms", ptime.Milliseconds(),
+		"state_validation_time_ms", vtime.Milliseconds(),
+		"account_commit_time_ms", statedb.AccountCommits.Milliseconds(),
+		"storage_commit_time_ms", statedb.StorageCommits.Milliseconds(),
+		"snapshot_commit_time_ms", statedb.SnapshotCommits.Milliseconds(),
+		"triedb_commit_time_ms", statedb.TrieDBCommits.Milliseconds(),
+		"total_disk_io_time_ms", (statedb.AccountCommits + statedb.StorageCommits + statedb.SnapshotCommits + statedb.TrieDBCommits).Milliseconds(),
+		"tx_count", len(block.Transactions()),
+		"gas_used", block.GasUsed(),
+	)
 
 	// TODO(rjl493456442) generalize the ResettingTimer
 	mgasps := float64(res.GasUsed) * 1000 / float64(elapsed)
@@ -2595,31 +2544,14 @@ func (bc *BlockChain) reorg(oldHead *types.Header, newHead *types.Header) error 
 // updating. It relies on the additional SetCanonical call to finalize the entire
 // procedure.
 func (bc *BlockChain) InsertBlockWithoutSetHead(block *types.Block, makeWitness bool) (*stateless.Witness, error) {
-	insertStartTime := time.Now()
-	
 	if !bc.chainmu.TryLock() {
 		return nil, errChainStopped
 	}
 	defer bc.chainmu.Unlock()
 
-	lockAcquisitionTime := time.Since(insertStartTime)
-	
-	chainInsertStartTime := time.Now()
 	witness, _, err := bc.insertChain(types.Blocks{block}, false, makeWitness)
-	chainInsertTime := time.Since(chainInsertStartTime)
 	
-	totalInsertTime := time.Since(insertStartTime)
-	
-	// Log timing for block insertion (includes block execution + trie calculation + DB I/O)
-	log.Info("InsertBlockWithoutSetHead timing breakdown",
-		"number", block.NumberU64(),
-		"hash", block.Hash(),
-		"total_time_ms", totalInsertTime.Milliseconds(),
-		"lock_time_ms", lockAcquisitionTime.Milliseconds(), // Time to acquire blockchain mutex
-		"insert_time_ms", chainInsertTime.Milliseconds(),    // Block execution + trie calculation + DB I/O
-		"tx_count", len(block.Transactions()),
-		"gas_used", block.GasUsed(),
-	)
+	// Note: Detailed timing is logged in processBlock() with accurate disk I/O measurements
 	
 	return witness, err
 }

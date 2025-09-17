@@ -846,13 +846,13 @@ func (api *ConsensusAPI) newPayload(params engine.ExecutableData, versionedHashe
 	// Calculate total time and log detailed timing breakdown
 	totalTime := time.Since(startTime)
 	
-	// Log timing breakdown for engine_newpayload API performance analysis
-	log.Info("NewPayload timing breakdown",
+	// Log comprehensive timing for each block in newPayload API
+	log.Info("NewPayload block timing",
 		"number", params.Number,
 		"hash", params.BlockHash,
 		"total_time_ms", totalTime.Milliseconds(),
-		"preprocessing_time_ms", (blockConversionTime + parentLookupTime).Milliseconds(), // CPU: validation, conversion, lookups
-		"block_insertion_time_ms", blockInsertionTime.Milliseconds(), // CPU + Disk I/O: block execution + trie calculation + DB I/O
+		"preprocessing_time_ms", (blockConversionTime + parentLookupTime).Milliseconds(),
+		"block_insertion_time_ms", blockInsertionTime.Milliseconds(),
 		"tx_count", len(block.Transactions()),
 		"gas_used", block.GasUsed(),
 	)
