@@ -1624,24 +1624,18 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	}
 	// If we're running an archive node, always flush
 	if bc.cfg.ArchiveMode {
-		trieCommitStart := time.Now()
 		err := bc.triedb.Commit(root, false)
-		trieCommitTime := time.Since(trieCommitStart)
 		trieDbTime := time.Since(trieDbStart)
 		totalWriteTime := time.Since(writeStartTime)
 		
-		// Log detailed timing for database writes (Disk I/O operations)
-		// This measures disk I/O time spent writing block data and state to database
+		// Log timing for database writes (Disk I/O operations)
 		log.Info("Block database write timing breakdown",
-			"number", block.NumberU64(),                    // Block number
-			"hash", block.Hash(),                           // Block hash
-			"block_write_time_ms", blockWriteTime.Milliseconds(),   // Disk I/O: Write block header, body, receipts to database
-			"state_commit_time_ms", stateCommitTime.Milliseconds(),  // Disk I/O: Commit state changes to database
-			"trie_db_time_ms", trieDbTime.Milliseconds(),             // Disk I/O: Trie database operations and garbage collection
-			"trie_commit_time_ms", trieCommitTime.Milliseconds(),    // Disk I/O: Commit trie to disk (archive mode)
-			"total_write_time_ms", totalWriteTime.Milliseconds(),    // Total disk I/O time for all database operations
-			"tx_count", len(block.Transactions()),                   // Number of transactions in block
-			"receipt_count", len(receipts),                          // Number of transaction receipts
+			"number", block.NumberU64(),
+			"hash", block.Hash(),
+			"trie_calculation_time_ms", stateCommitTime.Milliseconds(), // CPU: trie root calculation
+			"db_io_time_ms", (blockWriteTime + trieDbTime).Milliseconds(), // Disk I/O: database writes
+			"total_time_ms", totalWriteTime.Milliseconds(),
+			"tx_count", len(block.Transactions()),
 		)
 		return err
 	}

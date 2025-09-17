@@ -723,13 +723,11 @@ func (api *ConsensusAPI) newPayload(params engine.ExecutableData, versionedHashe
 	// check whether we already have the block locally.
 
 	// OP-Stack diff payload validation:
-	validationStart := time.Now()
 	if cfg := api.eth.BlockChain().Config(); cfg.IsOptimism() {
 		if err := checkOptimismPayload(params, cfg); err != nil {
 			return api.invalid(err, nil), nil
 		}
 	}
-	validationTime := time.Since(validationStart)
 
 	api.newPayloadLock.Lock()
 	defer api.newPayloadLock.Unlock()
@@ -778,22 +776,16 @@ func (api *ConsensusAPI) newPayload(params engine.ExecutableData, versionedHashe
 
 	// If we already have the block locally, ignore the entire execution and just
 	// return a fake success.
-	blockExistenceStart := time.Now()
 	if block := api.eth.BlockChain().GetBlockByHash(params.BlockHash); block != nil {
-		blockExistenceTime := time.Since(blockExistenceStart)
 		log.Warn("Ignoring already known beacon payload", "number", params.Number, "hash", params.BlockHash, "age", common.PrettyAge(time.Unix(int64(block.Time()), 0)))
 		hash := block.Hash()
 		return engine.PayloadStatusV1{Status: engine.VALID, LatestValidHash: &hash}, nil
 	}
-	blockExistenceTime := time.Since(blockExistenceStart)
 	
 	// Time the invalid ancestor check
-	invalidAncestorStart := time.Now()
 	if res := api.checkInvalidAncestor(block.Hash(), block.Hash()); res != nil {
-		invalidAncestorTime := time.Since(invalidAncestorStart)
 		return *res, nil
 	}
-	invalidAncestorTime := time.Since(invalidAncestorStart)
 	
 	// If the parent is missing, we - in theory - could trigger a sync, but that
 	// would also entail a reorg. That is problematic if multiple sibling blocks
@@ -819,14 +811,11 @@ func (api *ConsensusAPI) newPayload(params engine.ExecutableData, versionedHashe
 		return api.delayPayloadImport(block), nil
 	}
 	// Time the state availability check
-	stateAvailabilityStart := time.Now()
 	if !api.eth.BlockChain().HasBlockAndState(block.ParentHash(), block.NumberU64()-1) {
-		stateAvailabilityTime := time.Since(stateAvailabilityStart)
 		api.remoteBlocks.put(block.Hash(), block.Header())
 		log.Warn("State not available, ignoring new payload")
 		return engine.PayloadStatusV1{Status: engine.ACCEPTED}, nil
 	}
-	stateAvailabilityTime := time.Since(stateAvailabilityStart)
 	
 	log.Trace("Inserting block without sethead", "hash", block.Hash(), "number", block.Number())
 	
@@ -862,7 +851,7 @@ func (api *ConsensusAPI) newPayload(params engine.ExecutableData, versionedHashe
 		"number", params.Number,
 		"hash", params.BlockHash,
 		"total_time_ms", totalTime.Milliseconds(),
-		"preprocessing_time_ms", (blockConversionTime + blockExistenceTime + parentLookupTime + stateAvailabilityTime).Milliseconds(), // CPU: validation, conversion, lookups
+		"preprocessing_time_ms", (blockConversionTime + parentLookupTime).Milliseconds(), // CPU: validation, conversion, lookups
 		"block_insertion_time_ms", blockInsertionTime.Milliseconds(), // CPU + Disk I/O: block execution + trie calculation + DB I/O
 		"tx_count", len(block.Transactions()),
 		"gas_used", block.GasUsed(),
