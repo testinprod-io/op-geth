@@ -2160,6 +2160,17 @@ func (bc *BlockChain) processBlock(parentRoot common.Hash, block *types.Block, s
 		"gas_used", block.GasUsed(),
 	)
 
+	log.Info("Block processing timing 2",
+		"number", block.NumberU64(),
+		"hash", block.Hash(),
+		"total_time_ms", elapsed.Milliseconds(),
+		"process_time_ms", ptime.Milliseconds(),
+		"validation_time_ms", vtime.Milliseconds(),
+		"trie_update_time_ms", trieUpdate.Milliseconds(),
+		"trie_hash_time_ms", triehash.Milliseconds(),
+		"cross_validation_time_ms", xvtime.Milliseconds(),
+	)
+
 	// TODO(rjl493456442) generalize the ResettingTimer
 	mgasps := float64(res.GasUsed) * 1000 / float64(elapsed)
 	chainMgaspsMeter.Update(time.Duration(mgasps))
