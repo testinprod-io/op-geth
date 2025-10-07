@@ -45,15 +45,36 @@ func newPrecompileTimingTracer() *precompileTimingTracer {
 
 // address constants for targeted precompiles
 var (
-	addrModExp = common.BytesToAddress([]byte{0x05}) // EIP-198/2565
-	addrBnAdd  = common.BytesToAddress([]byte{0x06}) // BN256 ECADD
-	addrBnMul  = common.BytesToAddress([]byte{0x07}) // BN256 ECMUL
-	addrBnPair = common.BytesToAddress([]byte{0x08}) // BN256 Pairing
-	addrKZG    = common.BytesToAddress([]byte{0x0a}) // EIP-4844 KZG point evaluation
+	addrModExp     = common.BytesToAddress([]byte{0x05})       // EIP-198/2565
+	addrBnAdd      = common.BytesToAddress([]byte{0x06})       // BN256 ECADD
+	addrBnMul      = common.BytesToAddress([]byte{0x07})       // BN256 ECMUL
+	addrBnPair     = common.BytesToAddress([]byte{0x08})       // BN256 Pairing
+	addrKZG        = common.BytesToAddress([]byte{0x0a})       // EIP-4844 KZG point evaluation
+	addrECRecover  = common.BytesToAddress([]byte{0x01})       // ecrecover
+	addrSHA256     = common.BytesToAddress([]byte{0x02})       // sha256
+	addrRIPEMD160  = common.BytesToAddress([]byte{0x03})       // ripemd160
+	addrIdentity   = common.BytesToAddress([]byte{0x04})       // identity
+	addrBlake2f    = common.BytesToAddress([]byte{0x09})       // blake2f
+	addrBLSG1Add   = common.BytesToAddress([]byte{0x0b})       // bls12-381 g1 add
+	addrBLSG1MExp  = common.BytesToAddress([]byte{0x0c})       // bls12-381 g1 multiexp
+	addrBLSG2Add   = common.BytesToAddress([]byte{0x0d})       // bls12-381 g2 add
+	addrBLSG2MExp  = common.BytesToAddress([]byte{0x0e})       // bls12-381 g2 multiexp
+	addrBLSPairing = common.BytesToAddress([]byte{0x0f})       // bls12-381 pairing
+	addrBLSMapG1   = common.BytesToAddress([]byte{0x10})       // bls12-381 map g1
+	addrBLSMapG2   = common.BytesToAddress([]byte{0x11})       // bls12-381 map g2
+	addrP256Verify = common.BytesToAddress([]byte{0x01, 0x00}) // eip-7212 p256 verify
 )
 
 func (t *precompileTimingTracer) classify(addr common.Address) (string, bool) {
 	switch addr {
+	case addrECRecover:
+		return "ecrecover", true
+	case addrSHA256:
+		return "sha256", true
+	case addrRIPEMD160:
+		return "ripemd160", true
+	case addrIdentity:
+		return "identity", true
 	case addrModExp:
 		return "modexp", true
 	case addrBnAdd:
@@ -64,6 +85,24 @@ func (t *precompileTimingTracer) classify(addr common.Address) (string, bool) {
 		return "bn256_pairing", true
 	case addrKZG:
 		return "kzg_point_eval", true
+	case addrBlake2f:
+		return "blake2f", true
+	case addrBLSG1Add:
+		return "bls12_g1_add", true
+	case addrBLSG1MExp:
+		return "bls12_g1_multiexp", true
+	case addrBLSG2Add:
+		return "bls12_g2_add", true
+	case addrBLSG2MExp:
+		return "bls12_g2_multiexp", true
+	case addrBLSPairing:
+		return "bls12_pairing", true
+	case addrBLSMapG1:
+		return "bls12_map_g1", true
+	case addrBLSMapG2:
+		return "bls12_map_g2", true
+	case addrP256Verify:
+		return "p256_verify", true
 	default:
 		return "", false
 	}
@@ -115,10 +154,23 @@ func withPrecompileTiming(base *tracing.Hooks, timer *precompileTimingTracer) *t
 // snapshotTotals returns current totals as millisecond values for logging.
 func (t *precompileTimingTracer) snapshotTotals() map[string]int64 {
 	return map[string]int64{
-		"modexp_ms":         t.totalByKind["modexp"].Milliseconds(),
-		"bn256_add_ms":      t.totalByKind["bn256_add"].Milliseconds(),
-		"bn256_mul_ms":      t.totalByKind["bn256_mul"].Milliseconds(),
-		"bn256_pairing_ms":  t.totalByKind["bn256_pairing"].Milliseconds(),
-		"kzg_point_eval_ms": t.totalByKind["kzg_point_eval"].Milliseconds(),
+		"ecrecover_ms":         t.totalByKind["ecrecover"].Milliseconds(),
+		"sha256_ms":            t.totalByKind["sha256"].Milliseconds(),
+		"ripemd160_ms":         t.totalByKind["ripemd160"].Milliseconds(),
+		"identity_ms":          t.totalByKind["identity"].Milliseconds(),
+		"modexp_ms":            t.totalByKind["modexp"].Milliseconds(),
+		"bn256_add_ms":         t.totalByKind["bn256_add"].Milliseconds(),
+		"bn256_mul_ms":         t.totalByKind["bn256_mul"].Milliseconds(),
+		"bn256_pairing_ms":     t.totalByKind["bn256_pairing"].Milliseconds(),
+		"kzg_point_eval_ms":    t.totalByKind["kzg_point_eval"].Milliseconds(),
+		"blake2f_ms":           t.totalByKind["blake2f"].Milliseconds(),
+		"bls12_g1_add_ms":      t.totalByKind["bls12_g1_add"].Milliseconds(),
+		"bls12_g1_multiexp_ms": t.totalByKind["bls12_g1_multiexp"].Milliseconds(),
+		"bls12_g2_add_ms":      t.totalByKind["bls12_g2_add"].Milliseconds(),
+		"bls12_g2_multiexp_ms": t.totalByKind["bls12_g2_multiexp"].Milliseconds(),
+		"bls12_pairing_ms":     t.totalByKind["bls12_pairing"].Milliseconds(),
+		"bls12_map_g1_ms":      t.totalByKind["bls12_map_g1"].Milliseconds(),
+		"bls12_map_g2_ms":      t.totalByKind["bls12_map_g2"].Milliseconds(),
+		"p256_verify_ms":       t.totalByKind["p256_verify"].Milliseconds(),
 	}
 }
