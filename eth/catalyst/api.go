@@ -699,6 +699,9 @@ func (api *ConsensusAPI) NewPayloadV4(params engine.ExecutableData, versionedHas
 }
 
 func (api *ConsensusAPI) newPayload(params engine.ExecutableData, versionedHashes []common.Hash, beaconRoot *common.Hash, requests [][]byte, witness bool) (engine.PayloadStatusV1, error) {
+	// Start timing the entire newPayload operation
+	startTime := time.Now()
+	
 	// The locking here is, strictly, not required. Without these locks, this can happen:
 	//
 	// 1. NewPayload( execdata-N ) is invoked from the CL. It goes all the way down to
@@ -724,7 +727,12 @@ func (api *ConsensusAPI) newPayload(params engine.ExecutableData, versionedHashe
 	defer api.newPayloadLock.Unlock()
 
 	log.Trace("Engine API request received", "method", "NewPayload", "number", params.Number, "hash", params.BlockHash)
+	
+	// Time the block conversion from ExecutableData
+	blockConversionStart := time.Now()
 	block, err := engine.ExecutableDataToBlock(params, versionedHashes, beaconRoot, requests, api.eth.BlockChain().Config())
+	blockConversionTime := time.Since(blockConversionStart)
+	
 	if err != nil {
 		bgu := "nil"
 		if params.BlobGasUsed != nil {
@@ -767,17 +775,21 @@ func (api *ConsensusAPI) newPayload(params engine.ExecutableData, versionedHashe
 		hash := block.Hash()
 		return engine.PayloadStatusV1{Status: engine.VALID, LatestValidHash: &hash}, nil
 	}
-	// If this block was rejected previously, keep rejecting it
+	
+	// Time the invalid ancestor check
 	if res := api.checkInvalidAncestor(block.Hash(), block.Hash()); res != nil {
 		return *res, nil
 	}
+	
 	// If the parent is missing, we - in theory - could trigger a sync, but that
 	// would also entail a reorg. That is problematic if multiple sibling blocks
 	// are being fed to us, and even more so, if some semi-distant uncle shortens
 	// our live chain. As such, payload execution will not permit reorgs and thus
 	// will not trigger a sync cycle. That is fine though, if we get a fork choice
 	// update after legit payload executions.
+	parentLookupStart := time.Now()
 	parent := api.eth.BlockChain().GetBlock(block.ParentHash(), block.NumberU64()-1)
+	parentLookupTime := time.Since(parentLookupStart)
 	if parent == nil {
 		return api.delayPayloadImport(block), nil
 	}
@@ -792,13 +804,20 @@ func (api *ConsensusAPI) newPayload(params engine.ExecutableData, versionedHashe
 	if api.eth.SyncMode() != ethconfig.FullSync {
 		return api.delayPayloadImport(block), nil
 	}
+	// Time the state availability check
 	if !api.eth.BlockChain().HasBlockAndState(block.ParentHash(), block.NumberU64()-1) {
 		api.remoteBlocks.put(block.Hash(), block.Header())
 		log.Warn("State not available, ignoring new payload")
 		return engine.PayloadStatusV1{Status: engine.ACCEPTED}, nil
 	}
+	
 	log.Trace("Inserting block without sethead", "hash", block.Hash(), "number", block.Number())
+	
+	// Time the main block insertion operation
+	blockInsertionStart := time.Now()
 	proofs, err := api.eth.BlockChain().InsertBlockWithoutSetHead(block, witness)
+	blockInsertionTime := time.Since(blockInsertionStart)
+	
 	if err != nil {
 		log.Warn("NewPayload: inserting block failed", "error", err)
 
@@ -817,6 +836,21 @@ func (api *ConsensusAPI) newPayload(params engine.ExecutableData, versionedHashe
 		ow = new(hexutil.Bytes)
 		*ow, _ = rlp.EncodeToBytes(proofs)
 	}
+	
+	// Calculate total time and log detailed timing breakdown
+	totalTime := time.Since(startTime)
+	
+	// Log comprehensive timing for each block in newPayload API
+	log.Info("NewPayload block timing",
+		"number", params.Number,
+		"hash", params.BlockHash,
+		"total_time_ms", totalTime.Milliseconds(),
+		"preprocessing_time_ms", (blockConversionTime + parentLookupTime).Milliseconds(),
+		"block_insertion_time_ms", blockInsertionTime.Milliseconds(),
+		"tx_count", len(block.Transactions()),
+		"gas_used", block.GasUsed(),
+	)
+	
 	return engine.PayloadStatusV1{Status: engine.VALID, Witness: ow, LatestValidHash: &hash}, nil
 }
 

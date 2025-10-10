@@ -1597,6 +1597,7 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	if !bc.HasHeader(block.ParentHash(), block.NumberU64()-1) {
 		return consensus.ErrUnknownAncestor
 	}
+
 	// Irrelevant of the canonical status, write the block itself to the database.
 	//
 	// Note all the components of block(hash->number map, header, body, receipts)
@@ -1608,6 +1609,7 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	if err := blockBatch.Write(); err != nil {
 		log.Crit("Failed to write block into disk", "err", err)
 	}
+
 	// Commit all cached state changes into underlying memory database.
 	root, stateUpdate, err := statedb.CommitWithUpdate(block.NumberU64(), bc.chainConfig.IsEIP158(block.Number()), bc.chainConfig.IsCancun(block.Number(), block.Time()))
 	if err != nil {
@@ -1620,11 +1622,14 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	// If node is running in path mode, skip explicit gc operation
 	// which is unnecessary in this mode.
 	if bc.triedb.Scheme() == rawdb.PathScheme {
+		// Note: Comprehensive timing is logged in processBlock()
 		return nil
 	}
 	// If we're running an archive node, always flush
 	if bc.cfg.ArchiveMode {
-		return bc.triedb.Commit(root, false)
+		err := bc.triedb.Commit(root, false)
+		// Note: Comprehensive timing is logged in processBlock()
+		return err
 	}
 	// Full but not archive node, do proper garbage collection
 	bc.triedb.Reference(root, common.Hash{}) // metadata reference to keep trie alive
@@ -1633,6 +1638,7 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	// Flush limits are not considered for the first TriesInMemory blocks.
 	current := block.NumberU64()
 	if current <= state.TriesInMemory {
+		// Note: Comprehensive timing is logged in processBlock()
 		return nil
 	}
 	// If we exceeded our memory allowance, flush matured singleton nodes to disk
@@ -1674,6 +1680,9 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 		}
 		bc.triedb.Dereference(root)
 	}
+
+	// Note: Comprehensive timing is logged in processBlock()
+
 	return nil
 }
 
@@ -2080,8 +2089,13 @@ func (bc *BlockChain) ProcessBlock(parentRoot common.Hash, block *types.Block, s
 	}
 
 	// Process block using the parent state as reference point
+	// Install a per-block precompile timing tracer on top of any existing tracer.
+	vmCfg := bc.cfg.VmConfig
+	pct := newPrecompileTimingTracer()
+	vmCfg.Tracer = withPrecompileTiming(vmCfg.Tracer, pct)
+
 	pstart := time.Now()
-	res, err := bc.processor.Process(block, statedb, bc.cfg.VmConfig)
+	res, err := bc.processor.Process(block, statedb, vmCfg)
 	if err != nil {
 		bc.reportBlock(block, res, err)
 		return nil, err
@@ -2094,6 +2108,8 @@ func (bc *BlockChain) ProcessBlock(parentRoot common.Hash, block *types.Block, s
 		return nil, err
 	}
 	vtime := time.Since(vstart)
+
+	// Note: Comprehensive timing is logged in processBlock() using blockchain's built-in timers
 
 	// If witnesses was generated and stateless self-validation requested, do
 	// that now. Self validation should *never* run in production, it's more of
@@ -2173,6 +2189,58 @@ func (bc *BlockChain) ProcessBlock(parentRoot common.Hash, block *types.Block, s
 	blockWriteTimer.Update(time.Since(wstart) - max(statedb.AccountCommits, statedb.StorageCommits) /* concurrent */ - statedb.SnapshotCommits - statedb.TrieDBCommits)
 	elapsed := time.Since(startTime) + 1 // prevent zero division
 	blockInsertTimer.Update(elapsed)
+
+	// Log comprehensive block timing with accurate disk I/O measurements
+	// Snapshot precompile timing totals (in ms) for this block
+	pt := pct.snapshotTotals()
+
+	log.Info("Block processing timing",
+		"number", block.NumberU64(),
+		"hash", block.Hash(),
+		"block_execution_time_ms", (ptime - (statedb.AccountReads + statedb.StorageReads)).Milliseconds(),
+		"state_validation_time_ms", (vtime - (triehash + trieUpdate)).Milliseconds(),
+		"account_commit_time_ms", statedb.AccountCommits.Milliseconds(),
+		"storage_commit_time_ms", statedb.StorageCommits.Milliseconds(),
+		"snapshot_commit_time_ms", statedb.SnapshotCommits.Milliseconds(),
+		"triedb_commit_time_ms", statedb.TrieDBCommits.Milliseconds(),
+		"total_disk_io_time_ms", (statedb.AccountReads + statedb.StorageReads + statedb.AccountCommits + statedb.StorageCommits + statedb.SnapshotCommits + statedb.TrieDBCommits).Milliseconds(),
+		"tx_count", len(block.Transactions()),
+		"gas_used", block.GasUsed(),
+	)
+
+	log.Info("Block processing timing 2",
+		"number", block.NumberU64(),
+		"hash", block.Hash(),
+		"total_time_ms", elapsed.Milliseconds(),
+		"process_time_ms", ptime.Milliseconds(),
+		"validation_time_ms", vtime.Milliseconds(),
+		"trie_update_time_ms", trieUpdate.Milliseconds(),
+		"trie_hash_time_ms", triehash.Milliseconds(),
+		"cross_validation_time_ms", xvtime.Milliseconds(),
+	)
+
+	log.Info("Block processing timing 3",
+		"number", block.NumberU64(),
+		"hash", block.Hash(),
+		"precompile_ecrecover_ms", pt["ecrecover_ms"],
+		"precompile_sha256_ms", pt["sha256_ms"],
+		"precompile_ripemd160_ms", pt["ripemd160_ms"],
+		"precompile_identity_ms", pt["identity_ms"],
+		"precompile_modexp_ms", pt["modexp_ms"],
+		"precompile_bn256_add_ms", pt["bn256_add_ms"],
+		"precompile_bn256_mul_ms", pt["bn256_mul_ms"],
+		"precompile_bn256_pairing_ms", pt["bn256_pairing_ms"],
+		"precompile_kzg_point_eval_ms", pt["kzg_point_eval_ms"],
+		"precompile_blake2f_ms", pt["blake2f_ms"],
+		"precompile_bls12_g1_add_ms", pt["bls12_g1_add_ms"],
+		"precompile_bls12_g1_multiexp_ms", pt["bls12_g1_multiexp_ms"],
+		"precompile_bls12_g2_add_ms", pt["bls12_g2_add_ms"],
+		"precompile_bls12_g2_multiexp_ms", pt["bls12_g2_multiexp_ms"],
+		"precompile_bls12_pairing_ms", pt["bls12_pairing_ms"],
+		"precompile_bls12_map_g1_ms", pt["bls12_map_g1_ms"],
+		"precompile_bls12_map_g2_ms", pt["bls12_map_g2_ms"],
+		"precompile_p256_verify_ms", pt["p256_verify_ms"],
+	)
 
 	// TODO(rjl493456442) generalize the ResettingTimer
 	mgasps := float64(res.GasUsed) * 1000 / float64(elapsed)
@@ -2564,6 +2632,9 @@ func (bc *BlockChain) InsertBlockWithoutSetHead(block *types.Block, makeWitness 
 	defer bc.chainmu.Unlock()
 
 	witness, _, err := bc.insertChain(types.Blocks{block}, false, makeWitness)
+
+	// Note: Detailed timing is logged in processBlock() with accurate disk I/O measurements
+
 	return witness, err
 }
 
